@@ -37,6 +37,8 @@ public:
         }
         std::cout << std::endl;
     }
+    std::vector<typeindex>& GetInputs() { return inputs; }
+    std::vector<typeindex>& GetOutputs() { return outputs; }
 protected:
     std::vector<typeindex> inputs;
     std::vector<typeindex> outputs;
@@ -90,23 +92,79 @@ class TaskGraph
 public:
     template<typename Arg1>
     void operator+=(void(*fn)(Arg1)){
-        passes.push_back(new TaskWrap<Arg1>(fn));
+        tasks.push_back(new TaskWrap<Arg1>(fn));
+        Sort();
     }
     template<typename Arg1, typename Arg2>
     void operator+=(void(*fn)(Arg1, Arg2)){
-        passes.push_back(new TaskWrap<Arg1, Arg2>(fn));
+        tasks.push_back(new TaskWrap<Arg1, Arg2>(fn));
+        Sort();
+    }
+    
+    void Sort()
+    {
+        std::vector<TaskWrapBase*> tmpTasks = tasks;
+        tasks.clear();
+        
+        int sortPassCount;
+        do
+        {
+            sortPassCount = 0;
+            for(unsigned i = 0; i < tmpTasks.size(); ++i)
+            {
+                TaskWrapBase* task = tmpTasks[i];
+                if(!task)
+                    continue;
+                tmpTasks[i] = 0;
+                if(IsAnyInputConnected(task, tmpTasks))
+                {
+                    tmpTasks[i] = task;
+                }
+                else
+                {
+                    tasks.push_back(task);
+                    sortPassCount++;
+                }
+            }
+        }while(sortPassCount != 0);
+        for(unsigned i = 0; i < tmpTasks.size(); ++i)
+        {
+            if(tmpTasks[i] != 0)
+            {
+                std::cout << "Task graph is not acyclic" << std::endl;
+                break;
+            }
+        }
     }
     
     void Run()
     {
-        for(unsigned i = 0; i < passes.size(); ++i)
+        for(unsigned i = 0; i < tasks.size(); ++i)
         {
-            passes[i]->Print();
-            passes[i]->Run();
+            tasks[i]->Run();
         }
     }
 private:
-    std::vector<TaskWrapBase*> passes;
+    bool IsAnyInputConnected(TaskWrapBase* task, const std::vector<TaskWrapBase*> other)
+    {
+        std::vector<typeindex>& inputs = task->GetInputs();
+        for(typeindex in : inputs)
+        {
+            for(unsigned i = 0; i < other.size(); ++i)
+            {
+                if(!other[i])
+                    continue;
+                std::vector<typeindex>& outputs = other[i]->GetOutputs();
+                for(typeindex out : outputs)
+                {
+                    if(in == out)
+                        return true;
+                }
+            }
+        }
+        return false;
+    }
+    std::vector<TaskWrapBase*> tasks;
 };
 
 #endif
