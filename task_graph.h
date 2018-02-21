@@ -1,6 +1,7 @@
 #ifndef TASK_GRAPH_H
 #define TASK_GRAPH_H
 
+#include <vector>
 #include <iostream>
 #include <type_traits>
 
@@ -127,6 +128,13 @@ public:
             return;
         tasks.push_back(t);
         sort();
+    }
+    
+    template<typename T>
+    void set_data(const T& d)
+    {
+        T& data = task_data_storage<T>::Get();
+        data = d;
     }
     
     void sort()
