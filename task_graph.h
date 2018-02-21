@@ -6,8 +6,11 @@
 
 #include "typeinfo.h"
 
+namespace task_graph
+{
+
 template<typename T>
-class TaskDataStorage
+class task_data_storage
 {
 public:
     static T& Get() { return data; }
@@ -15,14 +18,14 @@ private:
     static T data;
 };
 template<typename T>
-T TaskDataStorage<T>::data;
+T task_data_storage<T>::data;
 
-class TaskWrapBase
+class task_wrap_base
 {
 public:
-    virtual ~TaskWrapBase() {}
-    virtual void Run() = 0;
-    void Print()
+    virtual ~task_wrap_base() {}
+    virtual void run() = 0;
+    void print()
     {
         std::cout << "Inputs:";
         for(typeindex type : inputs)
@@ -37,18 +40,18 @@ public:
         }
         std::cout << std::endl;
     }
-    std::vector<typeindex>& GetInputs() { return inputs; }
-    std::vector<typeindex>& GetOutputs() { return outputs; }
+    std::vector<typeindex>& get_inputs() { return inputs; }
+    std::vector<typeindex>& get_outputs() { return outputs; }
 protected:
     std::vector<typeindex> inputs;
     std::vector<typeindex> outputs;
 };
 
 template<typename Arg1, typename Arg2 = void>
-class TaskWrap : public TaskWrapBase
+class task_wrap : public task_wrap_base
 {
 public:
-    TaskWrap(void(*f)(Arg1, Arg2))
+    task_wrap(void(*f)(Arg1, Arg2))
     : func(f) 
     {
         typeindex a1 = TypeInfo<std::remove_cv<typename std::remove_reference<Arg1>::type>::type>::Index();
@@ -58,10 +61,10 @@ public:
         std::is_const<typename std::remove_reference<Arg2>::type>::value ?
             inputs.push_back(a2) : outputs.push_back(a2);
     }
-    virtual void Run()
+    virtual void run()
     {
-        Arg1& a1 = TaskDataStorage<std::remove_cv<typename std::remove_reference<Arg1>::type>::type>::Get();
-        Arg2& a2 = TaskDataStorage<std::remove_cv<typename std::remove_reference<Arg2>::type>::type>::Get();
+        Arg1& a1 = task_data_storage<std::remove_cv<typename std::remove_reference<Arg1>::type>::type>::Get();
+        Arg2& a2 = task_data_storage<std::remove_cv<typename std::remove_reference<Arg2>::type>::type>::Get();
         func(a1, a2);
     }
 private:
@@ -69,67 +72,67 @@ private:
 };
 
 template<typename Arg1>
-class TaskWrap<Arg1, void> : public TaskWrapBase
+class task_wrap<Arg1, void> : public task_wrap_base
 {
 public:
-    TaskWrap(void(*f)(Arg1))
+    task_wrap(void(*f)(Arg1))
     : func(f) 
     {
         typeindex a1 = TypeInfo<std::remove_cv<typename std::remove_reference<Arg1>::type>::type>::Index();
         std::is_const<typename std::remove_reference<Arg1>::type>::value ?
             inputs.push_back(a1) : outputs.push_back(a1);
     }
-    virtual void Run()
+    virtual void run()
     {
-        Arg1& a1 = TaskDataStorage<std::remove_cv<typename std::remove_reference<Arg1>::type>::type>::Get();
+        Arg1& a1 = task_data_storage<std::remove_cv<typename std::remove_reference<Arg1>::type>::type>::Get();
         func(a1);
     }
     void (*func)(Arg1);
 };
 
-class TaskGraph
+class graph
 {
 public:
     template<typename Arg1>
     void operator+=(void(*fn)(Arg1)){
-        tasks.push_back(new TaskWrap<Arg1>(fn));
-        Sort();
+        tasks.push_back(new task_wrap<Arg1>(fn));
+        sort();
     }
     template<typename Arg1, typename Arg2>
     void operator+=(void(*fn)(Arg1, Arg2)){
-        tasks.push_back(new TaskWrap<Arg1, Arg2>(fn));
-        Sort();
+        tasks.push_back(new task_wrap<Arg1, Arg2>(fn));
+        sort();
     }
     
-    void Sort()
+    void sort()
     {
-        std::vector<TaskWrapBase*> tmpTasks = tasks;
+        std::vector<task_wrap_base*> tmp_tasks = tasks;
         tasks.clear();
         
-        int sortPassCount;
+        int sorted_tasks_count;
         do
         {
-            sortPassCount = 0;
-            for(unsigned i = 0; i < tmpTasks.size(); ++i)
+            sorted_tasks_count = 0;
+            for(unsigned i = 0; i < tmp_tasks.size(); ++i)
             {
-                TaskWrapBase* task = tmpTasks[i];
+                task_wrap_base* task = tmp_tasks[i];
                 if(!task)
                     continue;
-                tmpTasks[i] = 0;
-                if(IsAnyInputConnected(task, tmpTasks))
+                tmp_tasks[i] = 0;
+                if(is_any_input_connected(task, tmp_tasks))
                 {
-                    tmpTasks[i] = task;
+                    tmp_tasks[i] = task;
                 }
                 else
                 {
                     tasks.push_back(task);
-                    sortPassCount++;
+                    sorted_tasks_count++;
                 }
             }
-        }while(sortPassCount != 0);
-        for(unsigned i = 0; i < tmpTasks.size(); ++i)
+        }while(sorted_tasks_count != 0);
+        for(unsigned i = 0; i < tmp_tasks.size(); ++i)
         {
-            if(tmpTasks[i] != 0)
+            if(tmp_tasks[i] != 0)
             {
                 std::cout << "Task graph is not acyclic" << std::endl;
                 break;
@@ -137,24 +140,24 @@ public:
         }
     }
     
-    void Run()
+    void run()
     {
         for(unsigned i = 0; i < tasks.size(); ++i)
         {
-            tasks[i]->Run();
+            tasks[i]->run();
         }
     }
 private:
-    bool IsAnyInputConnected(TaskWrapBase* task, const std::vector<TaskWrapBase*> other)
+    bool is_any_input_connected(task_wrap_base* task, const std::vector<task_wrap_base*> other)
     {
-        std::vector<typeindex>& inputs = task->GetInputs();
+        std::vector<typeindex>& inputs = task->get_inputs();
         for(typeindex in : inputs)
         {
             for(unsigned i = 0; i < other.size(); ++i)
             {
                 if(!other[i])
                     continue;
-                std::vector<typeindex>& outputs = other[i]->GetOutputs();
+                std::vector<typeindex>& outputs = other[i]->get_outputs();
                 for(typeindex out : outputs)
                 {
                     if(in == out)
@@ -164,7 +167,9 @@ private:
         }
         return false;
     }
-    std::vector<TaskWrapBase*> tasks;
+    std::vector<task_wrap_base*> tasks;
 };
+
+}
 
 #endif
