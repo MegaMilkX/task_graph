@@ -25,6 +25,11 @@ class task_wrap_base
 public:
     virtual ~task_wrap_base() {}
     virtual void run() = 0;
+    bool operator==(const task_wrap_base& other) const
+    {
+        return func_type == other.func_type;
+    }
+    bool does_run_once() { return once; }
     void print()
     {
         std::cout << "Inputs:";
@@ -40,9 +45,12 @@ public:
         }
         std::cout << std::endl;
     }
+    typeindex get_func_type() { return func_type; }
     std::vector<typeindex>& get_inputs() { return inputs; }
     std::vector<typeindex>& get_outputs() { return outputs; }
 protected:
+    bool once;
+    typeindex func_type;
     std::vector<typeindex> inputs;
     std::vector<typeindex> outputs;
 };
@@ -51,9 +59,11 @@ template<typename Arg1, typename Arg2 = void>
 class task_wrap : public task_wrap_base
 {
 public:
-    task_wrap(void(*f)(Arg1, Arg2))
-    : func(f) 
+    task_wrap(void(*f)(Arg1, Arg2), bool once = false)
+    : func(f)
     {
+        this->once = once;
+        func_type = TypeInfo<decltype(f)>::Index();
         typeindex a1 = TypeInfo<std::remove_cv<typename std::remove_reference<Arg1>::type>::type>::Index();
         typeindex a2 = TypeInfo<std::remove_cv<typename std::remove_reference<Arg2>::type>::type>::Index();
         std::is_const<typename std::remove_reference<Arg1>::type>::value ?
@@ -75,9 +85,11 @@ template<typename Arg1>
 class task_wrap<Arg1, void> : public task_wrap_base
 {
 public:
-    task_wrap(void(*f)(Arg1))
-    : func(f) 
+    task_wrap(void(*f)(Arg1), bool once = false)
+    : func(f)
     {
+        this->once = once;
+        func_type = TypeInfo<decltype(f)>::Index();
         typeindex a1 = TypeInfo<std::remove_cv<typename std::remove_reference<Arg1>::type>::type>::Index();
         std::is_const<typename std::remove_reference<Arg1>::type>::value ?
             inputs.push_back(a1) : outputs.push_back(a1);
@@ -90,17 +102,30 @@ public:
     void (*func)(Arg1);
 };
 
+template<typename... Args>
+task_wrap_base* once(void(*fn)(Args... args))
+{
+    return new task_wrap<Args...>(fn, true);
+}    
+
 class graph
 {
 public:
-    template<typename Arg1>
-    void operator+=(void(*fn)(Arg1)){
-        tasks.push_back(new task_wrap<Arg1>(fn));
-        sort();
+    ~graph()
+    {
+        clear_tasks();
     }
-    template<typename Arg1, typename Arg2>
-    void operator+=(void(*fn)(Arg1, Arg2)){
-        tasks.push_back(new task_wrap<Arg1, Arg2>(fn));
+    
+    template<typename... Args>
+    void operator+=(void(*fn)(Args... args)){
+        task_wrap_base* t = new task_wrap<Args...>(fn);
+        *this += t;        
+    }
+    
+    void operator+=(task_wrap_base* t){
+        if(exists(t))
+            return;
+        tasks.push_back(t);
         sort();
     }
     
@@ -144,10 +169,31 @@ public:
     {
         for(unsigned i = 0; i < tasks.size(); ++i)
         {
+            if(!tasks[i])
+                continue;
             tasks[i]->run();
+            if(tasks[i]->does_run_once())
+            {
+                delete tasks[i];
+                tasks[i] = 0;
+            }
         }
     }
 private:
+    void clear_tasks()
+    {
+        for(task_wrap_base* t : tasks)
+            if(t) delete t;
+        tasks.clear();
+    }
+    
+    bool exists(task_wrap_base* t)
+    {
+        for(unsigned i = 0; i < tasks.size(); ++i)
+            if(*t == *tasks[i])
+                return true;
+        return false;
+    }
     bool is_any_input_connected(task_wrap_base* task, const std::vector<task_wrap_base*> other)
     {
         std::vector<typeindex>& inputs = task->get_inputs();
