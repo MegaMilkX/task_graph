@@ -5,10 +5,28 @@
 #include <iostream>
 #include <type_traits>
 
-#include "typeinfo.h"
-
 namespace task_graph
 {
+    
+typedef int typeindex;
+template<typename T>
+struct TypeInfo{
+    static typeindex Index()    {
+        static typeindex id = _NewId();
+        return id;
+    }
+private:
+};
+
+template<typename T>
+typeindex GetTypeIndex(T value){
+    return TypeInfo<T>::Index();
+}
+
+inline typeindex _NewId(){
+    static typeindex id;
+    return ++id;
+}
 
 template<typename T>
 class task_data_storage
@@ -24,13 +42,19 @@ T task_data_storage<T>::data;
 class task_wrap_base
 {
 public:
+    task_wrap_base()
+    : first_call(true) {}
     virtual ~task_wrap_base() {}
     virtual void run() = 0;
     bool operator==(const task_wrap_base& other) const
     {
-        return func_type == other.func_type;
+        if(func_type == other.func_type)
+            return compare_same_type_wrapper(&other);
+        else
+            return false;
     }
     bool does_run_once() { return once; }
+    void reset_once_flag() { first_call = true; }
     void print()
     {
         std::cout << "Inputs:";
@@ -51,9 +75,12 @@ public:
     std::vector<typeindex>& get_outputs() { return outputs; }
 protected:
     bool once;
+    bool first_call;
     typeindex func_type;
     std::vector<typeindex> inputs;
     std::vector<typeindex> outputs;
+    
+    virtual bool compare_same_type_wrapper(const task_wrap_base* other) const = 0;
 };
 
 template<typename Arg1, typename Arg2 = void>
@@ -72,14 +99,24 @@ public:
         std::is_const<typename std::remove_reference<Arg2>::type>::value ?
             inputs.push_back(a2) : outputs.push_back(a2);
     }
+    
     virtual void run()
     {
+        if(once && !first_call)
+            return;
         Arg1& a1 = task_data_storage<std::remove_cv<typename std::remove_reference<Arg1>::type>::type>::Get();
         Arg2& a2 = task_data_storage<std::remove_cv<typename std::remove_reference<Arg2>::type>::type>::Get();
         func(a1, a2);
+        first_call = false;
     }
 private:
     void(*func)(Arg1, Arg2);
+    
+    virtual bool compare_same_type_wrapper(const task_wrap_base* other) const
+    {
+        auto o = (const task_wrap<Arg1, Arg2>*)other;
+        return func == o->func;
+    }
 };
 
 template<typename Arg1>
@@ -95,12 +132,24 @@ public:
         std::is_const<typename std::remove_reference<Arg1>::type>::value ?
             inputs.push_back(a1) : outputs.push_back(a1);
     }
+    
     virtual void run()
     {
+        if(once && !first_call)
+            return;
         Arg1& a1 = task_data_storage<std::remove_cv<typename std::remove_reference<Arg1>::type>::type>::Get();
         func(a1);
+        first_call = false;
     }
+    
+private:
     void (*func)(Arg1);
+    
+    virtual bool compare_same_type_wrapper(const task_wrap_base* other) const
+    {
+        auto o = (const task_wrap<Arg1, void>*)other;
+        return func == o->func;
+    }
 };
 
 template<typename... Args>
@@ -112,6 +161,8 @@ task_wrap_base* once(void(*fn)(Args... args))
 class graph
 {
 public:
+    graph()
+    {}
     ~graph()
     {
         clear_tasks();
@@ -121,6 +172,13 @@ public:
     void operator+=(void(*fn)(Args... args)){
         task_wrap_base* t = new task_wrap<Args...>(fn);
         *this += t;        
+    }
+    
+    template<typename... Args>
+    void reset_once_flag(void(*fn)(Args... args)){
+        for(unsigned i = 0; i < tasks.size(); ++i)
+            if(task_wrap<Args...>(fn) == *tasks[i])
+                tasks[i]->reset_once_flag();
     }
     
     void operator+=(task_wrap_base* t){
@@ -177,14 +235,7 @@ public:
     {
         for(unsigned i = 0; i < tasks.size(); ++i)
         {
-            if(!tasks[i])
-                continue;
             tasks[i]->run();
-            if(tasks[i]->does_run_once())
-            {
-                delete tasks[i];
-                tasks[i] = 0;
-            }
         }
     }
 private:
@@ -221,6 +272,7 @@ private:
         }
         return false;
     }
+
     std::vector<task_wrap_base*> tasks;
 };
 
